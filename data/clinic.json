@@ -1,0 +1,163 @@
+{
+  "settings": {
+    "clinicName": "سِنان",
+    "doctorName": "فريق سِنان",
+    "whatsapp": "00962780471734",
+    "clinicEmail": "",
+    "phone": "",
+    "address": "",
+    "adminAvatarUrl": "",
+    "siteDescription": "",
+    "heroLead": "موعدك لابتسامة",
+    "heroAccent": "أكثر صحة.",
+    "heroDescription": "رعاية أسنان متكاملة تبدأ بالاستماع إليك. اختر الخدمة والوقت المناسب، وسنكون بانتظارك.",
+    "copy": {
+      "servicesTitle": "اهتمام شامل، بكل تفاصيل ابتسامتك.",
+      "servicesDescription": "من الفحص الدوري إلى العناية التجميلية، نختار لك رعاية مدروسة وخطة واضحة تناسب احتياجك.",
+      "bookingTitle": "الخطوة الأولى تبدأ من هنا.",
+      "bookingDescription": "اختر الخدمة والموعد، وأكّد حجزك عبر واتساب. ستظهر الأوقات المحجوزة بوضوح.",
+      "aboutTitle": "الاهتمام الحقيقي يبدأ بالاستماع.",
+      "aboutDescription": "نؤمن أن زيارة طبيب الأسنان يجب أن تكون تجربة مطمئنة. لذلك نمنحك وقتًا لفهم احتياجاتك، ونشرح خياراتك بوضوح، ونتابع معك كل خطوة.",
+      "closingTitle": "ابتسامتك تستحق أن نعتني بها."
+    },
+    "seoTitle": "",
+    "seoDescription": "",
+    "openTime": "09:00",
+    "closeTime": "20:00",
+    "slotDuration": 30,
+    "workingDays": [
+      3,
+      4,
+      6
+    ],
+    "logoUrl": "",
+    "badgeUrl": "",
+    "verified": false,
+    "colors": {
+      "primary": "#286b57",
+      "secondary": "#d3e9a5",
+      "background": "#f7f8f5",
+      "text": "#172722"
+    },
+    "sections": {
+      "services": true,
+      "doctors": true,
+      "gallery": true,
+      "testimonials": true,
+      "faq": true,
+      "about": true,
+      "articles": true
+    },
+    "fontFamily": "IBM Plex Sans Arabic",
+    "fontSize": 14,
+    "headingSize": 38,
+    "buttonSize": 12,
+    "footerDescription": "رعاية تبدأ بابتسامة",
+    "socialLinks": {}
+  },
+  "services": [
+    {
+      "id": "checkup",
+      "name": "الفحص والاستشارة",
+      "description": "فحص شامل وخطة عناية تناسب احتياجك.",
+      "duration": 30,
+      "price": "يحدد بعد الفحص",
+      "icon": "⌕"
+    },
+    {
+      "id": "cleaning",
+      "name": "تنظيف الأسنان",
+      "description": "عناية دورية لأسنان أكثر صحة ونظافة.",
+      "duration": 45,
+      "price": "يحدد بعد الفحص",
+      "icon": "✳"
+    },
+    {
+      "id": "cosmetic",
+      "name": "تجميل الأسنان",
+      "description": "خيارات تجميلية مدروسة لابتسامة واثقة.",
+      "duration": 45,
+      "price": "يحدد بعد الفحص",
+      "icon": "◇"
+    },
+    {
+      "id": "treatment",
+      "name": "علاج الأسنان",
+      "description": "رعاية علاجية بخطوات واضحة ومريحة.",
+      "duration": 45,
+      "price": "يحدد بعد الفحص",
+      "icon": "＋"
+    }
+  ],
+  "appointments": [
+    {
+      "id": "3bfddd1c-bebd-4f32-b55f-0c706ab104d8",
+      "name": "ابراهيم حمد",
+      "phone": "0780471715",
+      "age": "",
+      "email": "",
+      "serviceId": "checkup",
+      "serviceName": "الفحص والاستشارة",
+      "duration": 30,
+      "date": "2026-10-03",
+      "time": "14:00",
+      "status": "pending",
+      "createdAt": "2026-10-01T21:38:01.741Z"
+    }
+  ],
+  "users": [],
+  "gallery": [
+    {
+      "id": "e0d26f83-4834-47d1-812c-c91d4d9b96c6",
+      "kind": "image",
+      "title": "",
+      "filename": "53b9be1a-8ef5-4b44-af3a-e35630ffa99f.jpg",
+      "url": "/uploads/53b9be1a-8ef5-4b44-af3a-e35630ffa99f.jpg",
+      "mimeType": "image/jpeg",
+      "size": 293615,
+      "createdAt": "2026-10-01T18:18:21.864Z"
+    }
+  ],
+  "doctors": [],
+  "patients": [
+    {
+      "id": "d117c9c5-3b5d-460c-90ed-de5b14491cd0",
+      "name": "ابراهيم حمد",
+      "phone": "0780471715",
+      "email": "",
+      "visits": 1,
+      "status": "active",
+      "notes": "",
+      "createdAt": "2026-10-01T21:38:01.742Z",
+      "lastAppointment": "2026-10-03"
+    }
+  ],
+  "pages": [],
+  "posts": [],
+  "testimonials": [],
+  "faqs": [],
+  "messages": [],
+  "categories": [],
+  "tags": [],
+  "staff": [],
+  "roles": [],
+  "activity": [
+    {
+      "id": "c45a84a1-ca2d-47d9-a58b-eb545cfb7ac2",
+      "action": "حجز جديد",
+      "target": "ابراهيم حمد · 2026-10-03 14:00",
+      "actor": "مراجع الموقع",
+      "createdAt": "2026-10-01T21:38:01.743Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "47c3084a-174d-482a-a91a-19eda0546725",
+      "type": "booking",
+      "title": "حجز جديد",
+      "detail": "ابراهيم حمد · الفحص والاستشارة",
+      "createdAt": "2026-10-01T21:38:01.741Z"
+    }
+  ],
+  "backups": []
+}

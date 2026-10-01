@@ -1,0 +1,12 @@
+{
+  "name": "sinan-dental-clinic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "عيادة سِنان لحجز وإدارة مواعيد طب الأسنان",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
