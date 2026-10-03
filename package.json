@@ -4,9 +4,10 @@
   "private": true,
   "description": "عيادة سِنان لحجز وإدارة مواعيد طب الأسنان",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   }
 }

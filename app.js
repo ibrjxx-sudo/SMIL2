@@ -110,6 +110,7 @@ let selectedDate = "";
 let selectedTime = "";
 let authMode = "login";
 let adminAuthRequested = false;
+let resetToken = "";
 let toastTimer;
 let notificationAudioContext;
 
@@ -443,7 +444,7 @@ function renderGallery() {
   container.innerHTML = publicGallery.map((item) => `
     <figure class="gallery-item">
       ${item.kind === "video"
-        ? `<video src="${escapeHTML(item.url)}" controls controlsList="nodownload noremoteplayback" preload="metadata" playsinline aria-label="${escapeHTML(item.title || "فيديو من العيادة")}"></video>`
+        ? `<video src="${escapeHTML(item.url)}" controls controlsList="nodownload noremoteplayback" disablepictureinpicture preload="metadata" playsinline aria-label="${escapeHTML(item.title || "فيديو من العيادة")}"></video>`
         : `<img src="${escapeHTML(item.url)}" alt="${escapeHTML(item.title || "صورة من عيادة سِنان")}" loading="lazy">`}
       ${item.title ? `<figcaption>${escapeHTML(item.title)}</figcaption>` : ""}
     </figure>`).join("");
@@ -618,17 +619,6 @@ function refreshStoredData() {
   appointments = readStore(STORAGE_KEYS.appointments, []);
 }
 
-function appointmentIsBooked(date, time, duration) {
-  const latest = readStore(STORAGE_KEYS.appointments, []);
-  const requestedStart = minutesFromTime(time);
-  return latest.some((appointment) => {
-    if (appointment.date !== date || appointment.status === "cancelled") return false;
-    const bookedStart = minutesFromTime(appointment.time);
-    const bookedDuration = Number(appointment.duration) || Number(services.find((item) => item.id === appointment.serviceId)?.duration) || Number(settings.slotDuration);
-    return requestedStart < bookedStart + bookedDuration && requestedStart + duration > bookedStart;
-  });
-}
-
 function buildWhatsAppMessage(appointment, service) {
   return [
     `مرحبًا ${settings.clinicName}، أود تأكيد حجز موعد:`,
@@ -645,15 +635,13 @@ bookingForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   bookingMessage.classList.remove("success");
   if (!bookingForm.reportValidity()) return;
+  if (!serverMode) {
+    bookingMessage.textContent = "خدمة الحجز غير متاحة الآن. يرجى المحاولة عند عودة اتصال خادم العيادة.";
+    return;
+  }
   const service = getSelectedService();
   if (!service || !selectedDate || !selectedTime) {
     bookingMessage.textContent = "يرجى اختيار الخدمة واليوم والوقت أولًا.";
-    return;
-  }
-  if (!serverMode && appointmentIsBooked(selectedDate, selectedTime, Number(service.duration))) {
-    refreshStoredData();
-    refreshBookingOptions();
-    bookingMessage.textContent = "تم حجز هذا الوقت للتو. اختر وقتًا آخر من الأوقات المتاحة.";
     return;
   }
   const formData = new FormData(bookingForm);
@@ -671,26 +659,20 @@ bookingForm.addEventListener("submit", async (event) => {
     status: "pending",
     createdAt: new Date().toISOString()
   };
-  if (serverMode) {
+  try {
+    const result = await requestApi("/api/appointments", {
+      method: "POST",
+      body: { ...appointment, serviceId: service.id }
+    });
+    Object.assign(appointment, result.appointment);
+    sharedBookedSlots.push({ date: appointment.date, time: appointment.time, duration: appointment.duration, serviceId: appointment.serviceId });
+  } catch (error) {
+    bookingMessage.textContent = error.message;
     try {
-      const result = await requestApi("/api/appointments", {
-        method: "POST",
-        body: { ...appointment, serviceId: service.id }
-      });
-      Object.assign(appointment, result.appointment);
-      sharedBookedSlots.push({ date: appointment.date, time: appointment.time, duration: appointment.duration, serviceId: appointment.serviceId });
-    } catch (error) {
-      bookingMessage.textContent = error.message;
-      try {
-        await refreshServerState();
-        renderTimeSlots();
-      } catch {}
-      return;
-    }
-  } else {
-    appointments = readStore(STORAGE_KEYS.appointments, []);
-    appointments.push(appointment);
-    writeStore(STORAGE_KEYS.appointments, appointments);
+      await refreshServerState();
+      renderTimeSlots();
+    } catch {}
+    return;
   }
   const message = buildWhatsAppMessage(appointment, service);
   const whatsappURL = `https://wa.me/${normalizeWhatsApp(settings.whatsapp)}?text=${encodeURIComponent(message)}`;
@@ -702,31 +684,45 @@ bookingForm.addEventListener("submit", async (event) => {
   addNotification("حجز جديد", `${appointment.name} · ${formatDate(appointment.date)} · ${formatTimeDisplay(appointment.time)}`, "booking");
   showToast("تم تجهيز رسالة الحجز في واتساب.");
   scheduleAppointmentReminders();
-  if (!serverMode) renderAdmin();
 });
 
 function setAuthMode(mode) {
   authMode = mode;
+  const isRegister = mode === "register";
+  const isReset = mode === "reset";
   byId("login-tab").classList.toggle("active", mode === "login");
-  byId("register-tab").classList.toggle("active", mode === "register");
+  byId("register-tab").classList.toggle("active", isRegister);
   byId("login-tab").setAttribute("aria-selected", String(mode === "login"));
-  byId("register-tab").setAttribute("aria-selected", String(mode === "register"));
+  byId("register-tab").setAttribute("aria-selected", String(isRegister));
+  byId("auth-tabs").hidden = isReset;
   document.querySelectorAll(".auth-register-field").forEach((field) => {
-    field.hidden = mode !== "register";
-    field.required = mode === "register";
+    const showForReset = isReset && field.id === "auth-confirm-password";
+    field.hidden = !isRegister && !showForReset;
+    field.required = (isRegister || showForReset) && field.id !== "auth-age";
   });
-  byId("auth-password").autocomplete = mode === "register" ? "new-password" : "current-password";
-  byId("auth-submit").innerHTML = mode === "register" ? 'إنشاء حساب <span aria-hidden="true">←</span>' : 'تسجيل الدخول <span aria-hidden="true">←</span>';
+  byId("auth-email-label").hidden = isReset;
+  byId("auth-email").hidden = isReset;
+  byId("auth-email").required = !isReset;
+  byId("auth-password-label").textContent = isReset ? "كلمة المرور الجديدة" : "كلمة المرور";
+  byId("auth-password").autocomplete = isRegister || isReset ? "new-password" : "current-password";
+  byId("auth-password").minLength = isRegister || isReset ? 12 : 1;
+  byId("auth-confirm-password").autocomplete = "new-password";
+  byId("auth-forgot-password").hidden = mode !== "login" || adminAuthRequested;
+  byId("auth-resend-verification").hidden = true;
+  byId("auth-submit").innerHTML = isRegister ? 'إنشاء حساب <span aria-hidden="true">←</span>' :
+    isReset ? 'تحديث كلمة المرور <span aria-hidden="true">←</span>' : 'تسجيل الدخول <span aria-hidden="true">←</span>';
+  byId("auth-title").textContent = isReset ? "استعادة كلمة المرور." : adminAuthRequested ? "تسجيل دخول الإدارة." :
+    isRegister ? "أنشئ حسابك معنا." : "تابع رحلتك معنا.";
   byId("auth-message").textContent = "";
+  byId("auth-message").classList.remove("success");
 }
 
 function openAuthDialog(forAdmin = false, initialMode = "login") {
   adminAuthRequested = forAdmin;
   setAuthMode(initialMode);
-  byId("auth-title").textContent = forAdmin ? "تسجيل دخول الإدارة." : initialMode === "register" ? "أنشئ حسابك معنا." : "تابع رحلتك معنا.";
-  byId("register-tab").hidden = forAdmin;
+  byId("register-tab").hidden = forAdmin || initialMode === "reset";
   if (!authDialog.open) authDialog.showModal();
-  byId(initialMode === "register" ? "auth-name" : "auth-email").focus();
+  byId(initialMode === "register" ? "auth-name" : initialMode === "reset" ? "auth-password" : "auth-email").focus();
 }
 
 byId("account-button").addEventListener("click", () => {
@@ -766,13 +762,11 @@ function initializeNotificationSystem() {
 }
 initializeNotificationSystem();
 byId("mobile-account-trigger").addEventListener("click", () => {
-  byId("account-button").click();
+  byId(signedInUser ? "account-avatar" : "account-button").click();
 });
 scheduleAppointmentReminders();
 byId("account-logout").addEventListener("click", async () => {
   if (serverMode) await requestApi("/api/auth/logout", { method: "POST" }).catch(() => {});
-  const wasAdmin = signedInUser?.role === "admin";
-  if (wasAdmin) sessionStorage.removeItem("sinan.adminSession");
   applySignedInUser(null);
   showToast("تم تسجيل الخروج.");
 });
@@ -795,11 +789,7 @@ byId("avatar-file").addEventListener("change", async (event) => {
 });
 
 byId("admin-entry").addEventListener("click", () => {
-  if (sessionStorage.getItem("sinan.adminSession") === "true") {
-    showAdminView();
-  } else {
-    openAuthDialog(true);
-  }
+  openAuthDialog(true);
 });
 
 byId("auth-close").addEventListener("click", () => authDialog.close());
@@ -808,11 +798,36 @@ authDialog.addEventListener("click", (event) => {
 });
 document.querySelectorAll("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => setAuthMode(button.dataset.authMode)));
 
-async function hashPassword(password) {
-  const bytes = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+byId("auth-forgot-password").addEventListener("click", async () => {
+  const email = byId("auth-email").value.trim().toLowerCase();
+  const message = byId("auth-message");
+  if (!email) {
+    message.textContent = "أدخل بريدك الإلكتروني أولًا.";
+    byId("auth-email").focus();
+    return;
+  }
+  try {
+    const result = await requestApi("/api/auth/password-reset", { method: "POST", body: { email } });
+    message.classList.add("success");
+    message.textContent = result.message;
+  } catch (error) {
+    message.textContent = error.message;
+    if (authMode === "register" && error.message.includes("أُنشئ الحساب")) {
+      byId("auth-resend-verification").hidden = false;
+    }
+  }
+});
+
+byId("auth-resend-verification").addEventListener("click", async () => {
+  const email = byId("auth-email").value.trim().toLowerCase();
+  try {
+    const result = await requestApi("/api/auth/resend-verification", { method: "POST", body: { email } });
+    byId("auth-message").classList.add("success");
+    byId("auth-message").textContent = result.message;
+  } catch (error) {
+    byId("auth-message").textContent = error.message;
+  }
+});
 
 byId("auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -826,13 +841,33 @@ byId("auth-form").addEventListener("submit", async (event) => {
 
   if (serverMode) {
     try {
+      if (authMode === "reset") {
+        const result = await requestApi("/api/auth/password-reset/confirm", {
+          method: "POST",
+          body: { token: resetToken, password, confirmPassword: byId("auth-confirm-password").value }
+        });
+        resetToken = "";
+        form.reset();
+        setAuthMode("login");
+        message.classList.add("success");
+        message.textContent = result.message;
+        return;
+      }
       const path = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
       const body = { email, password };
       if (authMode === "register") {
         body.name = byId("auth-name").value.trim();
-        body.age = Number(byId("auth-age").value);
+        body.age = byId("auth-age").value ? Number(byId("auth-age").value) : null;
+        body.phone = byId("auth-phone").value.trim();
+        body.confirmPassword = byId("auth-confirm-password").value;
       }
       const result = await requestApi(path, { method: "POST", body });
+      if (result.verificationRequired) {
+        message.classList.add("success");
+        message.textContent = result.message;
+        byId("auth-resend-verification").hidden = false;
+        return;
+      }
       if (adminAuthRequested && result.role !== "admin") {
         message.textContent = "هذا الحساب لا يملك صلاحية لوحة الإدارة.";
         return;
@@ -840,12 +875,11 @@ byId("auth-form").addEventListener("submit", async (event) => {
       byId("auth-form").reset();
       authDialog.close();
       if (result.role === "admin") {
-        sessionStorage.setItem("sinan.adminSession", "true");
-        applySignedInUser({ name: "مدير النظام", avatarUrl: settings.adminAvatarUrl, role: "admin" });
+        applySignedInUser({ ...result.user, avatarUrl: settings.adminAvatarUrl, role: "admin" });
         showAdminView();
       } else {
         applySignedInUser(result.user);
-        showToast(authMode === "register" ? "تم إنشاء حسابك. بقيت مسجلًا للدخول." : "تم تسجيل الدخول بنجاح.");
+        showToast("تم تسجيل الدخول بنجاح.");
       }
     } catch (error) {
       message.textContent = error.message;
@@ -853,58 +887,14 @@ byId("auth-form").addEventListener("submit", async (event) => {
     return;
   }
 
-  if (adminAuthRequested) {
-    if (email === "ibr.jx@gmail.com" && password === "1199") {
-      sessionStorage.setItem("sinan.adminSession", "true");
-      applySignedInUser({ name: "مدير النظام", avatarUrl: settings.adminAvatarUrl, role: "admin" });
-      authDialog.close();
-      showAdminView();
-      byId("auth-form").reset();
-    } else {
-      message.textContent = "بيانات الدخول غير صحيحة.";
-    }
-    return;
-  }
-
-  try {
-    const accounts = readStore(STORAGE_KEYS.accounts, []);
-    if (authMode === "register") {
-      const name = byId("auth-name").value.trim();
-      const age = Number(byId("auth-age").value);
-      if (!name || age < 1 || age > 120) {
-        message.textContent = "يرجى إدخال الاسم والعمر بشكل صحيح.";
-        return;
-      }
-      if (accounts.some((account) => account.email === email)) {
-        message.textContent = "يوجد حساب بهذا البريد الإلكتروني بالفعل.";
-        return;
-      }
-      const account = { name, age, email, passwordHash: await hashPassword(password) };
-      accounts.push(account);
-      writeStore(STORAGE_KEYS.accounts, accounts);
-      signedInUser = { name, age, email };
-      writeStore(STORAGE_KEYS.signedIn, signedInUser);
-    } else {
-      const passwordHash = await hashPassword(password);
-      const account = accounts.find((entry) => entry.email === email && entry.passwordHash === passwordHash);
-      if (!account) {
-        message.textContent = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
-        return;
-      }
-      signedInUser = { name: account.name, age: account.age, email: account.email };
-      writeStore(STORAGE_KEYS.signedIn, signedInUser);
-    }
-    applySignedInUser(signedInUser);
-    byId("booking-phone").focus();
-    authDialog.close();
-    form.reset();
-    showToast(authMode === "register" ? "تم إنشاء حسابك وتسجيل الدخول." : "تم تسجيل الدخول بنجاح.");
-  } catch {
-    message.textContent = "تعذر إتمام العملية. افتح الموقع عبر خادم محلي حديث وحاول مجددًا.";
-  }
+  message.textContent = "خدمة الحسابات غير متاحة الآن. افتح الموقع عبر خادم العيادة وحاول مجددًا.";
 });
 
 async function showAdminView() {
+  if (!serverMode || !["admin", "staff"].includes(signedInUser?.role)) {
+    showToast("يلزم تسجيل الدخول إلى الخادم لفتح لوحة الإدارة.");
+    return;
+  }
   byId("public-view").hidden = true;
   document.querySelector(".site-header").hidden = true;
   document.querySelector(".site-footer").hidden = true;
@@ -913,19 +903,30 @@ async function showAdminView() {
   if (serverMode) {
     try {
       await refreshServerState();
-      await refreshAdminAppointments();
-      await loadDashboardData();
-      if (signedInUser?.role === "admin" || signedInUser?.permissions?.includes("doctors")) await loadCollection("doctors");
-      if (signedInUser?.role === "admin" || signedInUser?.permissions?.includes("patients")) await loadCollection("patients");
       if (signedInUser?.role === "admin") {
+        await refreshAdminAppointments();
+        await loadDashboardData();
+        await loadCollection("doctors");
+        await loadCollection("patients");
         await refreshAdminMembers();
         await loadStaffUsers();
         await loadNotifications();
-        applyAdminPermissions(["appointments", "patients", "doctors", "services", "media", "appearance", "users", "reports", "settings", "content"]);
+        applyAdminPermissions(["appointments", "patients", "doctors", "services", "media", "content", "appearance", "users", "reports", "settings"].flatMap((area) => PERMISSION_ACTIONS_FOR_UI[area].map((action) => `${area}.${action}`)));
       } else if (signedInUser?.role === "staff") {
         applyAdminPermissions(signedInUser.permissions || []);
+        if (adminHasPermission("appointments.view")) await refreshAdminAppointments();
+        if (adminHasPermission("reports.view")) await loadDashboardData();
+        if (adminHasPermission("doctors.view")) await loadCollection("doctors");
+        if (adminHasPermission("patients.view")) await loadCollection("patients");
+        if (adminHasPermission("users.view")) await loadStaffUsers();
+        if (adminHasPermission("settings.view")) await loadNotifications();
       }
       if (byId("admin-current-user")) byId("admin-current-user").textContent = signedInUser?.name || "مدير النظام";
+      const activeTab = document.querySelector("[data-admin-tab].active");
+      if (!activeTab || activeTab.hidden) {
+        const firstAvailableTab = [...document.querySelectorAll("[data-admin-tab]")].find((button) => !button.hidden);
+        if (firstAvailableTab) await activateAdminTab(firstAvailableTab);
+      }
     } catch (error) {
       showToast(error.message);
     }
@@ -946,7 +947,6 @@ function showPublicView() {
 byId("back-to-site").addEventListener("click", showPublicView);
 byId("logout-button").addEventListener("click", () => {
   if (serverMode) requestApi("/api/auth/logout", { method: "POST" }).catch(() => {});
-  sessionStorage.removeItem("sinan.adminSession");
   applySignedInUser(null);
   showPublicView();
   showToast("تم تسجيل الخروج من لوحة الإدارة.");
@@ -1048,6 +1048,25 @@ async function loadStaffUsers() {
   body.innerHTML = result.users.map((user) => `<tr><td>${escapeHTML(user.name)}</td><td>${escapeHTML(user.email)}</td><td>${escapeHTML(user.role)}</td><td>${user.permissions.length.toLocaleString("ar-JO")} صلاحيات</td><td>${user.disabled ? "موقوف" : "نشط"}</td><td>${user.type === "staff" ? `<div class="collection-actions"><button type="button" data-toggle-staff="${escapeHTML(user.id)}" data-disabled="${!user.disabled}">${user.disabled ? "تفعيل" : "إيقاف"}</button><button type="button" data-delete-staff="${escapeHTML(user.id)}">حذف</button></div>` : "عضو موقع"}</td></tr>`).join("");
   const roles = await requestApi("/api/admin/roles");
   byId("role-list").innerHTML = roles.roles.map((role) => `<article class="collection-row"><div><strong>${escapeHTML(role.name)}</strong><small>${role.permissions.map((permission) => escapeHTML(permission)).join("، ")}</small></div></article>`).join("") || '<div class="empty-state"><strong>الأدوار الافتراضية مفعّلة من الخادم</strong></div>';
+  const roleSelect = byId("staff-user-form").querySelector('[name="role"]');
+  if (roleSelect) {
+    const builtIns = [
+      { name: "Receptionist", permissions: ["appointments.view", "appointments.create", "appointments.edit", "patients.view", "patients.create", "patients.edit"] },
+      { name: "Doctor", permissions: ["appointments.view", "appointments.edit", "patients.view", "patients.edit"] },
+      { name: "Editor", permissions: ["content.view", "content.create", "content.edit", "media.view", "media.upload", "appearance.view", "appearance.edit"] },
+      { name: "Admin", permissions: Object.entries(PERMISSION_ACTIONS_FOR_UI).flatMap(([area, actions]) => actions.map((action) => `${area}.${action}`)) }
+    ];
+    const availableRoles = [...builtIns, ...roles.roles].filter((role) =>
+      signedInUser?.role === "admin" || role.permissions.every((permission) => adminHasPermission(permission))
+    );
+    roleSelect.innerHTML = availableRoles.map((role) => `<option value="${escapeHTML(role.name)}">${escapeHTML(role.name)}</option>`).join("");
+  }
+  body.querySelectorAll("[data-toggle-staff]").forEach((button) => {
+    button.hidden = !adminHasPermission("users.edit");
+  });
+  body.querySelectorAll("[data-delete-staff]").forEach((button) => {
+    button.hidden = !adminHasPermission("users.delete");
+  });
   body.querySelectorAll("[data-toggle-staff]").forEach((button) => button.addEventListener("click", async () => {
     try {
       await requestApi(`/api/admin/users/${encodeURIComponent(button.dataset.toggleStaff)}`, { method: "PATCH", body: { disabled: button.dataset.disabled === "true" } });
@@ -1067,7 +1086,8 @@ async function loadStaffUsers() {
 byId("add-staff-user").addEventListener("click", () => {
   const form = byId("staff-user-form");
   form.hidden = false;
-  form.innerHTML = `<label>الاسم<input class="field-control" name="name" required></label><label>البريد الإلكتروني<input class="field-control" name="email" type="email" required></label><label>كلمة المرور المؤقتة<input class="field-control" name="password" type="password" minlength="8" required></label><label>الدور<select class="field-control" name="role"><option>Receptionist</option><option>Doctor</option><option>Editor</option><option>Admin</option></select></label><div class="span-all"><button class="button button-primary" type="submit">إنشاء المستخدم</button><p class="admin-feedback" data-form-feedback></p></div>`;
+  form.innerHTML = `<label>الاسم<input class="field-control" name="name" required></label><label>البريد الإلكتروني<input class="field-control" name="email" type="email" required></label><label>كلمة المرور المؤقتة<input class="field-control" name="password" type="password" minlength="12" required></label><label>الدور<select class="field-control" name="role" required></select></label><div class="span-all"><button class="button button-primary" type="submit">إنشاء المستخدم</button><p class="admin-feedback" data-form-feedback></p></div>`;
+  loadStaffUsers().catch((error) => { form.querySelector("[data-form-feedback]").textContent = error.message; });
   form.onsubmit = async (event) => {
     event.preventDefault();
     try {
@@ -1185,17 +1205,18 @@ function renderCalendar() {
   const end = dates.at(-1);
   byId("calendar-period").textContent = mode === "day" ? formatDate(localDateKey(start), { day: "numeric", month: "long", year: "numeric" }) : `${formatDate(localDateKey(start), { month: "short", year: "numeric" })}${mode === "week" ? ` · ${formatDate(localDateKey(end), { day: "numeric", month: "short" })}` : ""}`;
   grid.className = `calendar-grid calendar-${mode}`;
+  const canEditAppointments = adminHasPermission("appointments.edit");
   const weekdays = WEEKDAYS.map((day) => `<div class="calendar-weekday">${day}</div>`).join("");
   const cells = dates.map((date) => {
     const key = localDateKey(date);
     const today = key === localDateKey(new Date());
     const items = appointments.filter((item) => item.date === key);
-    return `<div class="calendar-day${today ? " is-today" : ""}${date.getMonth() !== start.getMonth() && mode === "month" ? " is-outside" : ""}" data-calendar-day="${key}"><strong>${date.getDate()}</strong>${items.map((item) => `<button draggable="true" class="calendar-appointment" data-calendar-appointment="${escapeHTML(item.id)}" title="${escapeHTML(item.name)} · ${escapeHTML(item.time)}">${escapeHTML(item.time)} ${escapeHTML(item.name)}</button>`).join("")}</div>`;
+    return `<div class="calendar-day${today ? " is-today" : ""}${date.getMonth() !== start.getMonth() && mode === "month" ? " is-outside" : ""}" data-calendar-day="${key}"><strong>${date.getDate()}</strong>${items.map((item) => `<button draggable="${canEditAppointments}" class="calendar-appointment" data-calendar-appointment="${escapeHTML(item.id)}" title="${escapeHTML(item.name)} · ${escapeHTML(item.time)}">${escapeHTML(item.time)} ${escapeHTML(item.name)}</button>`).join("")}</div>`;
   }).join("");
   grid.innerHTML = `${mode === "month" ? weekdays : ""}${cells}`;
   grid.querySelectorAll("[data-calendar-appointment]").forEach((item) => {
     item.addEventListener("click", () => showAppointmentDetails(item.dataset.calendarAppointment));
-    item.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", item.dataset.calendarAppointment));
+    if (canEditAppointments) item.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", item.dataset.calendarAppointment));
   });
   grid.querySelectorAll("[data-calendar-day]").forEach((cell) => {
     cell.addEventListener("dragover", (event) => event.preventDefault());
@@ -1237,13 +1258,15 @@ function renderAppointments() {
     return matchesFilter && haystack.includes(search) && (!dateFilter || appointment.date === dateFilter) && (!doctorFilter || appointment.doctorId === doctorFilter) && (!serviceFilter || appointment.serviceId === serviceFilter);
   });
   const body = byId("appointments-body");
+  const canEditAppointments = adminHasPermission("appointments.edit");
+  const canDeleteAppointments = adminHasPermission("appointments.delete");
   byId("table-result-count").textContent = `${visible.length.toLocaleString("ar-JO")} حجز`;
   byId("empty-appointments").hidden = visible.length > 0;
   body.innerHTML = visible.map((appointment) => {
     const status = STATUS_LABELS[appointment.status] || STATUS_LABELS.pending;
     const serviceName = appointment.serviceName || services.find((service) => service.id === appointment.serviceId)?.name || "خدمة العيادة";
     return `<tr>
-      <td><input type="checkbox" data-select-appointment="${escapeHTML(appointment.id)}" ${selectedAppointments.has(appointment.id) ? "checked" : ""} aria-label="تحديد الحجز"></td>
+      <td>${canDeleteAppointments ? `<input type="checkbox" data-select-appointment="${escapeHTML(appointment.id)}" ${selectedAppointments.has(appointment.id) ? "checked" : ""} aria-label="تحديد الحجز">` : ""}</td>
       <td>${escapeHTML(appointment.id.slice(0, 8))}</td>
       <td><button class="table-link" type="button" data-view-appointment="${escapeHTML(appointment.id)}">${escapeHTML(appointment.name)}</button></td>
       <td dir="ltr">${escapeHTML(appointment.phone)}</td>
@@ -1251,9 +1274,12 @@ function renderAppointments() {
       <td>${escapeHTML(serviceName)}</td>
       <td>${escapeHTML(formatDate(appointment.date))} · <span dir="ltr">${escapeHTML(appointment.time)}</span></td>
       <td><span class="status-badge status-${escapeHTML(appointment.status)}">${status}</span></td>
-      <td><div class="row-actions"><button type="button" data-view-appointment="${escapeHTML(appointment.id)}">عرض</button><select aria-label="تغيير حالة حجز ${escapeHTML(appointment.name)}" data-status-id="${escapeHTML(appointment.id)}">${Object.entries(STATUS_LABELS).map(([value, label]) => `<option value="${value}" ${appointment.status === value ? "selected" : ""}>${label}</option>`).join("")}</select><button class="row-delete" type="button" aria-label="حذف حجز ${escapeHTML(appointment.name)}" data-delete-id="${escapeHTML(appointment.id)}">×</button></div></td>
+      <td><div class="row-actions"><button type="button" data-view-appointment="${escapeHTML(appointment.id)}">عرض</button>${canEditAppointments ? `<select aria-label="تغيير حالة حجز ${escapeHTML(appointment.name)}" data-status-id="${escapeHTML(appointment.id)}">${Object.entries(STATUS_LABELS).map(([value, label]) => `<option value="${value}" ${appointment.status === value ? "selected" : ""}>${label}</option>`).join("")}</select>` : ""}${canDeleteAppointments ? `<button class="row-delete" type="button" aria-label="حذف حجز ${escapeHTML(appointment.name)}" data-delete-id="${escapeHTML(appointment.id)}">×</button>` : ""}</div></td>
     </tr>`;
   }).join("");
+  byId("select-all-appointments").hidden = !canDeleteAppointments;
+  byId("bulk-delete-appointments").hidden = !canDeleteAppointments;
+  byId("export-appointments").hidden = !adminHasPermission("reports.export");
   byId("select-all-appointments").checked = visible.length > 0 && visible.every((item) => selectedAppointments.has(item.id));
   byId("selection-count").textContent = `${selectedAppointments.size.toLocaleString("ar-JO")} حجز محدد`;
   byId("bulk-delete-appointments").disabled = selectedAppointments.size === 0;
@@ -1377,11 +1403,23 @@ byId("bulk-delete-appointments").addEventListener("click", async () => {
 byId("export-appointments").addEventListener("click", () => exportCsv("appointments.csv", [["رقم الحجز", "المريض", "الهاتف", "الطبيب", "الخدمة", "التاريخ", "الوقت", "الحالة"], ...appointments.map((item) => [item.id, item.name, item.phone, item.doctorName || "", item.serviceName, item.date, item.time, STATUS_LABELS[item.status] || item.status])]));
 
 const ADMIN_TITLES = { overview: "لوحة التحكم", appointments: "الحجوزات", calendar: "التقويم", patients: "المرضى", doctors: "الأطباء", services: "الخدمات", pages: "الصفحات", posts: "المقالات", gallery: "مكتبة الوسائط", testimonials: "آراء المرضى", faqs: "الأسئلة الشائعة", messages: "الرسائل", users: "المستخدمون والأدوار", reports: "التقارير", branding: "الوسائط والتوثيق", customization: "تخصيص الموقع", settings: "الإعدادات", system: "النظام والسجل", members: "الأعضاء" };
+const PERMISSION_ACTIONS_FOR_UI = {
+  appointments: ["view", "create", "edit", "delete"], patients: ["view", "create", "edit", "delete"],
+  doctors: ["view", "create", "edit", "delete"], services: ["view", "create", "edit", "delete"],
+  media: ["view", "upload", "delete"], content: ["view", "create", "edit", "delete"],
+  appearance: ["view", "edit"], users: ["view", "create", "edit", "delete"],
+  reports: ["view", "export"], settings: ["view", "edit", "export"]
+};
+function adminHasPermission(permission, permissions = signedInUser?.permissions || []) {
+  if (signedInUser?.role === "admin") return true;
+  const [area, action] = permission.split(".");
+  return permissions.includes(permission) || action === "view" && permissions.includes(area);
+}
 
 async function activateAdminTab(button) {
   const tab = button.dataset.adminTab;
-  const tabPermissions = { overview: "appointments", appointments: "appointments", calendar: "appointments", patients: "patients", doctors: "doctors", services: "services", pages: "content", posts: "content", gallery: "media", testimonials: "content", faqs: "content", messages: "content", users: "users", reports: "reports", branding: "appearance", customization: "appearance", settings: "settings", system: "settings", members: "users" };
-  if (signedInUser?.role === "staff" && !(signedInUser.permissions || []).includes(tabPermissions[tab])) {
+  const tabPermissions = { overview: "reports.view", appointments: "appointments.view", calendar: "appointments.view", patients: "patients.view", doctors: "doctors.view", services: "services.view", pages: "content.view", posts: "content.view", gallery: "media.view", testimonials: "content.view", faqs: "content.view", messages: "content.view", users: "users.view", reports: "reports.view", branding: "appearance.view", customization: "appearance.view", settings: "settings.view", system: "settings.view", members: "users.view" };
+  if (signedInUser?.role === "staff" && !adminHasPermission(tabPermissions[tab])) {
     showToast("لا تملك صلاحية الوصول إلى هذا القسم.");
     return;
   }
@@ -1408,15 +1446,26 @@ async function activateAdminTab(button) {
 document.querySelectorAll("[data-admin-tab]").forEach((button) => button.addEventListener("click", () => activateAdminTab(button)));
 
 function applyAdminPermissions(permissions) {
-  const tabPermissions = { overview: "appointments", appointments: "appointments", calendar: "appointments", patients: "patients", doctors: "doctors", services: "services", pages: "content", posts: "content", gallery: "media", testimonials: "content", faqs: "content", messages: "content", users: "users", reports: "reports", branding: "appearance", customization: "appearance", settings: "settings", system: "settings", members: "users" };
-  document.querySelectorAll("[data-admin-tab]").forEach((button) => { button.hidden = !permissions.includes(tabPermissions[button.dataset.adminTab]); });
+  const tabPermissions = { overview: "reports.view", appointments: "appointments.view", calendar: "appointments.view", patients: "patients.view", doctors: "doctors.view", services: "services.view", pages: "content.view", posts: "content.view", gallery: "media.view", testimonials: "content.view", faqs: "content.view", messages: "content.view", users: "users.view", reports: "reports.view", branding: "appearance.view", customization: "appearance.view", settings: "settings.view", system: "settings.view", members: "users.view" };
+  document.querySelectorAll("[data-admin-tab]").forEach((button) => { button.hidden = !adminHasPermission(tabPermissions[button.dataset.adminTab], permissions); });
   document.querySelectorAll(".admin-nav-group").forEach((group) => {
     const visible = [...group.querySelectorAll("[data-admin-tab]")].some((button) => !button.hidden);
     group.hidden = !visible;
   });
   document.querySelectorAll("[data-quick-add]").forEach((button) => {
-    const permission = { appointment: "appointments", patient: "patients", doctor: "doctors", service: "services", page: "content", post: "content" }[button.dataset.quickAdd];
-    button.hidden = !permissions.includes(permission);
+    const permission = { appointment: "appointments.create", patient: "patients.create", doctor: "doctors.create", service: "services.create", page: "content.create", post: "content.create" }[button.dataset.quickAdd];
+    button.hidden = !adminHasPermission(permission, permissions);
+  });
+  byId("add-staff-user").hidden = !adminHasPermission("users.view", permissions) || !adminHasPermission("users.create", permissions);
+  byId("role-form").hidden = !adminHasPermission("users.view", permissions) || !adminHasPermission("users.edit", permissions);
+  byId("admin-booking-link").hidden = !adminHasPermission("appointments.create", permissions);
+  document.querySelectorAll("[data-focus-add]").forEach((button) => {
+    button.hidden = !adminHasPermission("appointments.create", permissions);
+  });
+  byId("export-report").hidden = !adminHasPermission("reports.export", permissions);
+  byId("notifications-toggle").closest(".top-action-wrap").hidden = !adminHasPermission("settings.view", permissions);
+  byId("role-permissions").querySelectorAll("option").forEach((option) => {
+    option.disabled = !adminHasPermission(option.value, permissions);
   });
 }
 byId("sidebar-collapse").addEventListener("click", () => byId("admin-view").classList.toggle("sidebar-collapsed"));
@@ -2144,15 +2193,43 @@ async function initialize() {
     const auth = await requestApi("/api/auth/me");
     if (auth.role === "user") applySignedInUser(auth.user);
     if (auth.role === "admin" || auth.role === "staff") {
-      sessionStorage.setItem("sinan.adminSession", "true");
       applySignedInUser(auth.role === "admin" ? { name: "مدير النظام", avatarUrl: settings.adminAvatarUrl, role: "admin" } : { ...auth.user, role: "staff" });
       await showAdminView();
+    } else {
+      applySignedInUser(null);
     }
-  } catch {
+  } catch (error) {
+    console.error("Could not initialize the clinic server:", error);
     serverMode = false;
+    showToast("تعذر الاتصال بخادم العيادة. بعض خدمات الموقع غير متاحة مؤقتًا.");
   }
-  if (!serverMode && signedInUser?.name) {
-    applySignedInUser(signedInUser);
+  if (!serverMode) {
+    signedInUser = null;
+    localStorage.removeItem(STORAGE_KEYS.signedIn);
+  } else {
+    const authLink = new URL(window.location.href);
+    const verificationToken = authLink.searchParams.get("verify");
+    resetToken = authLink.searchParams.get("reset") || "";
+    if (verificationToken || resetToken) {
+      authLink.searchParams.delete("verify");
+      authLink.searchParams.delete("reset");
+      window.history.replaceState({}, document.title, `${authLink.pathname}${authLink.search}${authLink.hash}`);
+      if (resetToken) {
+        openAuthDialog(false, "reset");
+      } else {
+        openAuthDialog(false, "login");
+        try {
+          const result = await requestApi("/api/auth/verify-email", {
+            method: "POST",
+            body: { token: verificationToken }
+          });
+          byId("auth-message").classList.add("success");
+          byId("auth-message").textContent = result.message;
+        } catch (error) {
+          byId("auth-message").textContent = error.message;
+        }
+      }
+    }
   }
   window.setInterval(async () => {
     if (!serverMode) return;

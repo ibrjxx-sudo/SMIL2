@@ -106,18 +106,7 @@
     }
   ],
   "users": [],
-  "gallery": [
-    {
-      "id": "e0d26f83-4834-47d1-812c-c91d4d9b96c6",
-      "kind": "image",
-      "title": "",
-      "filename": "53b9be1a-8ef5-4b44-af3a-e35630ffa99f.jpg",
-      "url": "/uploads/53b9be1a-8ef5-4b44-af3a-e35630ffa99f.jpg",
-      "mimeType": "image/jpeg",
-      "size": 293615,
-      "createdAt": "2026-10-01T18:18:21.864Z"
-    }
-  ],
+  "gallery": [],
   "doctors": [],
   "patients": [
     {
@@ -142,6 +131,34 @@
   "staff": [],
   "roles": [],
   "activity": [
+    {
+      "id": "05a15194-af92-464e-8dce-2ec2a577273c",
+      "action": "حذف",
+      "target": "posts: يييي",
+      "actor": "مدير النظام",
+      "createdAt": "2026-10-03T17:00:38.986Z"
+    },
+    {
+      "id": "6272e1f0-62bc-48f6-9af5-eca8f85d0d53",
+      "action": "إضافة",
+      "target": "posts: يييي",
+      "actor": "مدير النظام",
+      "createdAt": "2026-10-03T16:59:43.582Z"
+    },
+    {
+      "id": "9da2ff70-b314-49d3-b696-187489aeaf6a",
+      "action": "حذف",
+      "target": "doctors: لا",
+      "actor": "مدير النظام",
+      "createdAt": "2026-10-03T16:58:58.707Z"
+    },
+    {
+      "id": "c9cc9fc5-c88b-408b-b296-e3d548c273fa",
+      "action": "إضافة",
+      "target": "doctors: لا",
+      "actor": "مدير النظام",
+      "createdAt": "2026-10-03T16:58:18.325Z"
+    },
     {
       "id": "c45a84a1-ca2d-47d9-a58b-eb545cfb7ac2",
       "action": "حجز جديد",
